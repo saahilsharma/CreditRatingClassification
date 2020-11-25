@@ -3,11 +3,12 @@ import numpy as np
 import pandas as pd
 import xlrd
 import yahoo_fin.stock_info as si
-
+import math
 # Visualization
 import matplotlib.pyplot as plt
 import seaborn as sns
-from pandas import DataFrame
+from pandas import DataFrame, Series
+
 plt.style.use('seaborn-whitegrid')
 
 # Preprocessing
@@ -25,9 +26,17 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.svm import SVC
 from sklearn.model_selection import cross_val_predict
 
-def fillInNaColumnsFromYahooFinance(df) -> DataFrame:
+def fillInNaColumnsFromYahooFinance(row:Series) -> DataFrame:
+       ticker = row['Ticker'].split(" ")[0]
+       bs_info = si.get_balance_sheet(ticker)
+       financials = si.get_financials(ticker)
+       stats = si.get_stats(ticker)
+       #print(ticker + ": " + str(row['EBITDA']))
+       if(math.isnan(row['EBITDA'])):
+              row['EBITDA'] = stats[stats['Attribute'] == 'EBITDA']['Value']
+              print(row['EBITDA'])
 
-       return df
+       return row
 
 
 if __name__ == "__main__":
@@ -43,8 +52,11 @@ if __name__ == "__main__":
        sp_1500_clean['OurRating'] = sp_1500_clean['RTG_SP_LT_LC_ISSUER_CREDIT'].apply(lambda x: 'Not Junk' if(x in not_junk_rating) else 'Junk')
 
        #quote = si.get_quote_table(sp_1500_clean['Ticker'][0])
-       fin = si.get_financials("PFG")
-       print(fin)
+       #fin = si.get_financials("PFG")
+       sp_1500_clean.apply(fillInNaColumnsFromYahooFinance, axis=1)
+
+
+
 
 # plt.scatter(sp_1500_clean['CF_FREE_CASH_FLOW'], sp_1500_clean['OurRating'], c='g', s=4)
 # plt.show()
