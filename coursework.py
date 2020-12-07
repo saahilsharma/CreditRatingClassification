@@ -22,7 +22,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import scale
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.model_selection import cross_val_predict
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import KFold
@@ -32,7 +32,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticD
 
 
 #read data
-data = pd.read_csv("Ratings&Fundamentals.csv")
+data = pd.read_csv("RatingsAndFundamentals.csv").dropna()
 data.head()
 len(data)
 
@@ -49,12 +49,7 @@ plt.scatter(data.ebit, data.OurRating, c = 'b', s=4)
 
 plt.scatter(data.OurRating, data.netinc, c = 'orange', s=4)
 
-#set numerical values to OurRating
-data_new = data
-data_new['OurRating'] = data['OurRating'].apply(
-        lambda x: 1 if (x == "Not Junk") else 0)
-
-df = data_new.loc[:,'OurRating':'fcfps']
+df = data.loc[:,'OurRating':'fcfps']
 df
 
 #These rows had NAN values, hence I replaced the missing values with 0

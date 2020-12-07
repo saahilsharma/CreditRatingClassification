@@ -15,8 +15,8 @@ if __name__ == "__main__":
     sp_1500 = pd.read_excel('S&P1500_Ratings.xlsx')
     sp_1500.dropna(subset=['RTG_SP_LT_LC_ISSUER_CREDIT'], inplace=True)
     sp_1500_clean = sp_1500[~sp_1500['RTG_SP_LT_LC_ISSUER_CREDIT'].isin(['NR', 'SD'])]
-    sp_1500_clean['IsJunk'] = sp_1500_clean['RTG_SP_LT_LC_ISSUER_CREDIT'].apply(
-        lambda x: 0 if (x in not_junk_rating) else 1)
+    sp_1500_clean['OurRating'] = sp_1500_clean['RTG_SP_LT_LC_ISSUER_CREDIT'].apply(
+        lambda x: 1 if (x in not_junk_rating) else 0)
 
     sp_1500_clean['Ticker'] = sp_1500_clean['Ticker'].apply(lambda t: t.split(" ")[0].replace("/", "-"))
 
