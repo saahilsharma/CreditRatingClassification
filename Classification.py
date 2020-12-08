@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 from sklearn.ensemble import RandomForestClassifier, BaggingClassifier, ExtraTreesClassifier
-from sklearn.feature_selection import SelectKBest, chi2, SelectFromModel
+from sklearn.feature_selection import SelectKBest, chi2, SelectFromModel, f_classif
+
+from pca_helper import PCAHelper
 
 pd.set_option('display.max_columns', None)
 import matplotlib.pyplot as plt
@@ -27,13 +29,41 @@ from sklearn.model_selection import cross_val_predict
 from sklearn.model_selection import GridSearchCV
 import graphviz
 from sklearn.decomposition import PCA
+from enum import Enum
+from functools import partial
 
 class RatingsClassification(object):
+
+	class MLMethod(Enum):
+		LogisticRegression = 1,
+		LDA = 2,
+		DecisionTree = 3,
+		RandomForest = 4,
+		SVM = 5
+
+	class FeatureSelectionMethod(Enum):
+		Lasso = 1,
+		PCA = 2,
+		F_Score = 3
+
+	class Metrics(Enum):
+		Mean = 1,
+		Std = 2
+
+	class Scores(Enum):
+		accuracy = 1,
+		precision = 2,
+		recall = 3,
+		f1 = 4
+
 	def __init__(self, test_size=0.25):
-		self.methods = ['LR', 'LDA', 'DT', 'RF', 'LinSVM']
-		self.variable_sel_methods = ['Lasso','PCA','Correlation']
-		self.scores = ['Accuracy', 'Precision', 'Recall', 'F1']
-		self.results:DataFrame = pd.DataFrame(index=pd.MultiIndex.from_product([self.methods, self.variable_sel_methods]), columns=self.scores)
+		methods = [e.name for e in RatingsClassification.MLMethod]
+		feature_sel_methods = [e.name for e in RatingsClassification.FeatureSelectionMethod]
+		metrics = [e.name for e in RatingsClassification.Metrics]
+		scores = [e.name for e in RatingsClassification.Scores]
+
+		self.results = pd.DataFrame(index=pd.MultiIndex.from_product([methods, feature_sel_methods, metrics]),
+		                            columns=scores)
 		self.test_size = test_size
 		self.best_estimator = dict()
 
@@ -43,142 +73,161 @@ class RatingsClassification(object):
 		### Lasso ###
 		X_reduced = self.__reduce_with_lasso(X_train, Y_train)
 
-		lr_grid = self.__run_lr(X_reduced,Y_train)
-		lda_grid = self.__run_lda(X_train,Y_train)
-		dt_grid = self.__run_dt(X_train,Y_train)
-		rf_grid = self.__run_rf(X_train,Y_train)
-		svm_grid = self.__run_svm(X_train,Y_train)
+		lr_grid = self.__run_lr(X_reduced,Y_train, RatingsClassification.FeatureSelectionMethod.Lasso)
+		lda_grid = self.__run_lda(X_train,Y_train, RatingsClassification.FeatureSelectionMethod.Lasso)
+		dt_grid = self.__run_dt(X_train,Y_train, RatingsClassification.FeatureSelectionMethod.Lasso)
+		rf_grid = self.__run_rf(X_train,Y_train, RatingsClassification.FeatureSelectionMethod.Lasso)
+		svm_grid = self.__run_svm(X_train,Y_train, RatingsClassification.FeatureSelectionMethod.Lasso)
 
 		### PCA ###
-		lr_grid_pca = self.__run_lr(X_reduced, Y_train, use_pca=True)
-		lda_grid_pca = self.__run_lda(X_train, Y_train, use_pca=True)
-		dt_grid_pca = self.__run_dt(X_train, Y_train, use_pca=True)
-		rf_grid_pca = self.__run_rf(X_train, Y_train, use_pca=True)
-		svm_grid_pca = self.__run_svm(X_train, Y_train, use_pca=True)
+		lr_grid_pca = self.__run_lr(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.PCA)
+		lda_grid_pca = self.__run_lda(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.PCA)
+		dt_grid_pca = self.__run_dt(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.PCA)
+		rf_grid_pca = self.__run_rf(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.PCA)
+		svm_grid_pca = self.__run_svm(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.PCA)
 
-		###
-
-	# def fit_model(self, grid, method, sel_method):
-	#  	self.results.loc[method][sel_method]['Accuracy'] = grid.best_estimator_['accuracy'].mean()
-	# 	self.results.loc[method]['Accuracy'] = scores['test_accuracy'].mean()
-	#   	self.results.loc[method]['Precision'] = scores['test_precision'].mean()
-	#   	self.results.loc[method]['Recall'] = scores['test_recall'].mean()
-	#   	self.results.loc[method]['F1'] = scores['test_f1'].mean()
+		### F-Score ###
+		lr_grid_pca = self.__run_lr(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.F_Score)
+		lda_grid_pca = self.__run_lda(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.F_Score)
+		dt_grid_pca = self.__run_dt(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.F_Score)
+		rf_grid_pca = self.__run_rf(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.F_Score)
+		svm_grid_pca = self.__run_svm(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.F_Score)
 
 	def __reduce_with_lasso(self, X, Y):
 		lasso = SelectFromModel(LassoCV(random_state=42, tol=0.01))
-		lasso.fit(X,Y)
+		lasso.fit(X, Y)
 		retained_feats = X.columns[(lasso.estimator_.coef_ != 0).ravel().tolist()]
 		print(retained_feats)
 		return lasso.transform(X)
 
-	def __run_lr(self, X, Y, use_pca=False):
+	def __run_lr(self, X, Y, sel_method: FeatureSelectionMethod):
 		lr = LogisticRegression(random_state=42)
 		C = [0.01, 0.1, 1, 10]
-		if not(use_pca):
-			params = dict(lr__C=C)
-			pipe = Pipeline(steps=[('lr', lr)])
-		else:
-			n_components = list(range(1, X.shape[1] + 1, 1))
-			params = dict(dim_reduction__n_components=n_components, lr__C=C)
-			pipe =  Pipeline([('dim_reduction', PCA(random_state=42)),
-		                     ('lr', lr)]
-		                    )
-		return self.__find_best_estimator(pipe, params, X, Y)
+		params = dict(lr__C=C)
+		pipe = Pipeline(steps=[('lr', lr)])
+		if sel_method == RatingsClassification.FeatureSelectionMethod.Lasso:
+			self.__find_best_estimator(pipe, params, X, Y, RatingsClassification.MLMethod.LogisticRegression, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.PCA:
+			self.__run_pca_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.LogisticRegression, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.F_Score:
+			self.__run_fscore_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.LogisticRegression, sel_method)
 
-	def __run_lda(self, X, Y, use_pca=False):
+		# self.__plot_results(grid, "lr__C", sel_method + "_LR")
+		# if use_pca:
+		# 	self.__plot_results(grid, "dim_reduction__n_components", sel_method + "_LR")
+
+	def __run_lda(self, X, Y, sel_method: FeatureSelectionMethod):
 		lda = LinearDiscriminantAnalysis()
-		if not(use_pca):
-			params = dict()
-			pipe = Pipeline(steps=[('lda', lda)])
-		else:
-			n_components = list(range(1, X.shape[1] + 1, 1))
-			params = dict(dim_reduction__n_components=n_components)
-			pipe = Pipeline([('dim_reduction', PCA(random_state=42)),
-			                     ('lda', lda)]
-			                    )
+		params = dict()
+		pipe = Pipeline(steps=[('lda', lda)])
+		if sel_method == RatingsClassification.FeatureSelectionMethod.Lasso:
+			self.__find_best_estimator(pipe, params, X, Y, RatingsClassification.MLMethod.LDA, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.PCA:
+			self.__run_pca_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.LDA, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.F_Score:
+			self.__run_fscore_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.LDA, sel_method)
 
-		return self.__find_best_estimator(pipe, params, X, Y)
+		# if use_pca:
+		# 	self.__plot_results(grid, "dim_reduction__n_components", sel_method + "_LDA")
 
-	def __run_dt(self, X, Y, use_pca=False):
-		n_leaf_nodes = range(2,40)
+	def __run_dt(self, X, Y, sel_method: FeatureSelectionMethod):
+		n_leaf_nodes = range(2, 40)
 		dt = tree.DecisionTreeClassifier(random_state=42)
-		if not(use_pca):
-			params = dict(dt__max_leaf_nodes=n_leaf_nodes)
-			pipe = Pipeline(steps=[('dt', dt)])
-		else:
-			n_components = list(range(1, X.shape[1] + 1, 1))
-			params = dict(dim_reduction__n_components=n_components, dt__max_leaf_nodes=n_leaf_nodes)
-			pipe = Pipeline([('dim_reduction', PCA(random_state=42)),
-		                 ('dt', tree.DecisionTreeClassifier(random_state=42))]
-		                )
+		params = dict(dt__max_leaf_nodes=n_leaf_nodes)
+		pipe = Pipeline(steps=[('dt', dt)])
+		if sel_method == RatingsClassification.FeatureSelectionMethod.Lasso:
+			self.__find_best_estimator(pipe, params, X, Y, RatingsClassification.MLMethod.DecisionTree, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.PCA:
+			self.__run_pca_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.DecisionTree, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.F_Score:
+			self.__run_fscore_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.DecisionTree, sel_method)
 
-		return self.__find_best_estimator(pipe, params, X, Y)
+		# self.__plot_results(grid, "dt__max_leaf_nodes", sel_method + "_DT")
+		# if use_pca:
+		# 	self.__plot_results(grid, "dim_reduction__n_components", sel_method + "_DT")
 
-	def __run_rf(self, X, Y, use_pca=False):
-		max_features = ['auto', 'sqrt', 'log2']
-		n_estimators = range(200, 400, 50)
-		max_depth = [4, 5, 6, 7, 8]
-		criterion = ['gini', 'entropy']
-		if not(use_pca):
-			params = dict(rf__max_features=max_features, rf__n_estimators=n_estimators,
-			              rf__max_depth=max_depth, rf__criterion=criterion)
-			pipe = Pipeline([('rf', RandomForestClassifier(random_state=42))])
-		else:
-			n_components = list(range(1, X.shape[1] + 1, 1))
-			params = dict(dim_reduction__n_components=n_components, rf__max_features=max_features,
-			              rf__n_estimators=n_estimators, rf__max_depth=max_depth, rf__criterion=criterion)
-			pipe = Pipeline([('dim_reduction', PCA(random_state=42)),
-			                 ('rf', RandomForestClassifier(random_state=42))]
-			                )
+	def __run_rf(self, X, Y, sel_method: FeatureSelectionMethod):
+		n_estimators = range(50, 200, 50)
+		max_depth = range(1,10,1)
+		params = dict(rf__n_estimators=n_estimators, rf__max_depth=max_depth)
+		pipe = Pipeline([('rf', RandomForestClassifier(random_state=42))])
+		if sel_method == RatingsClassification.FeatureSelectionMethod.Lasso:
+			self.__find_best_estimator(pipe, params, X, Y, RatingsClassification.MLMethod.RandomForest, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.PCA:
+			self.__run_pca_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.RandomForest, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.F_Score:
+			self.__run_fscore_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.RandomForest, sel_method)
 
-		return self.__find_best_estimator(pipe, params, X, Y)
+		# self.__plot_results(grid, "rf__n_estimators", sel_method + "_RF")
+		# self.__plot_results(grid, "rf__max_depth", sel_method + "_RF")
+		# if use_pca:
+		# 	self.__plot_results(grid, "dim_reduction__n_components", sel_method + "_RF")
 
-	def __run_svm(self, X, Y, use_pca=False):
-		C = [0.001,0.01, 0.1, 1, 10]
+	def __run_svm(self, X, Y, sel_method: FeatureSelectionMethod):
+		C = [0.001, 0.01, 0.1, 1, 10]
 		gammas = [0.001, 0.01, 0.1, 1]
-		kernels = ['linear','poly','rbf']
+		kernels = ['linear', 'poly', 'rbf']
 		svm = SVC()
-		if not(use_pca):
-			params = dict(svm__C=C, svm__gamma=gammas,svm__kernel=kernels)
-			pipe = Pipeline(steps=[('svm', svm)])
-		else:
-			n_components = list(range(1, X.shape[1] + 1, 1))
-			params = dict(dim_reduction__n_components=n_components, svm__C=C, svm__gamma=gammas,svm__kernel=kernels)
-			pipe = Pipeline([('dim_reduction', PCA(random_state=42)),
-		                 ('svm', SVC(random_state=42))]
-		                )
+		params = dict(svm__C=C, svm__gamma=gammas, svm__kernel=kernels)
+		pipe = Pipeline(steps=[('svm', svm)])
+		if sel_method == RatingsClassification.FeatureSelectionMethod.Lasso:
+			self.__find_best_estimator(pipe, params, X, Y, RatingsClassification.MLMethod.SVM, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.PCA:
+			self.__run_pca_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.SVM, sel_method)
+		elif sel_method == RatingsClassification.FeatureSelectionMethod.F_Score:
+			self.__run_fscore_pipeline(pipe, params, X, Y, RatingsClassification.MLMethod.SVM, sel_method)
 
-		return self.__find_best_estimator(pipe, params, X, Y)
+		# self.__plot_results(grid, "svm__C", sel_method + "_SVM")
+		# self.__plot_results(grid, "svm__gamma", sel_method + "_SVM")
+		# self.__plot_results(grid, "svm__kernels", sel_method + "_SVM")
+		# if use_pca:
+		# 	self.__plot_results(grid, "dim_reduction__n_components", sel_method + "_SVM")
 
-	def __find_best_estimator(self, pipe, param_grid, X, Y):
-		grid = GridSearchCV(pipe, cv=10, n_jobs=2, param_grid=param_grid, scoring=["accuracy", "f1", "precision", "recall"],
-		                    refit='accuracy', return_train_score=True)
-		grid.fit(X,Y)
-		#print(grid.cv_results_['mean_test_f1'])
-		print(grid.cv_results_['rank_test_accuracy'])
-		#print(grid.best_estimator_['dim_reduction'].components_)
-		#print(pd.DataFrame(grid.best_estimator_['dim_reduction'].components_, columns=X.columns))
-		self.__plot_results(grid)
+	def __run_pca_pipeline(self, pipe: Pipeline, params: dict, X, Y, method: MLMethod, sel_method: FeatureSelectionMethod):
+		n_components = list(range(1, X.shape[1] + 1, 1))
+		params['dim_reduction__n_components'] = n_components
+		pipe.steps.insert(0, ('dim_reduction', PCA(random_state=42)))
+		self.__find_best_estimator(pipe, params, X, Y, method, sel_method, refit_method=PCAHelper.best_low_complexity)
+
+	def __run_fscore_pipeline(self, pipe: Pipeline, params: dict, X, Y, method: MLMethod, sel_method: FeatureSelectionMethod):
+		n_components = list(range(1, X.shape[1] + 1, 1))
+		params['dim_reduction__k'] = n_components
+		pipe.steps.insert(0, ('dim_reduction', SelectKBest(f_classif)))
+		self.__find_best_estimator(pipe, params, X, Y, method, sel_method, refit_method=partial(PCAHelper.best_low_complexity,param='dim_reduction__k'))
+
+	def __find_best_estimator(self, pipe, param_grid, X, Y, ml_method: MLMethod, feat_sel_method: FeatureSelectionMethod, refit_method="accuracy"):
+		grid = GridSearchCV(pipe, cv=10, n_jobs=-1, param_grid=param_grid,
+		                    scoring=[s.name for s in RatingsClassification.Scores],
+		                    refit=refit_method, return_train_score=True)
+		grid.fit(X, Y)
+		results = grid.cv_results_
+		print(grid.best_params_)
+		method = ml_method.name
+		sel_method = feat_sel_method.name
+		self.results.loc[method, sel_method, 'Mean']['accuracy'] = results['mean_test_accuracy'][grid.best_index_]
+		self.results.loc[method, sel_method, 'Mean']['precision'] = results['mean_test_precision'][grid.best_index_]
+		self.results.loc[method, sel_method, 'Mean']['recall'] = results['mean_test_recall'][grid.best_index_]
+		self.results.loc[method, sel_method, 'Mean']['f1'] = results['mean_test_f1'][grid.best_index_]
+
+		self.results.loc[method, sel_method, 'Std']['accuracy'] = results['std_test_accuracy'][grid.best_index_]
+		self.results.loc[method, sel_method, 'Std']['precision'] = results['std_test_precision'][grid.best_index_]
+		self.results.loc[method, sel_method, 'Std']['recall'] = results['std_test_recall'][grid.best_index_]
+		self.results.loc[method, sel_method, 'Std']['f1'] = results['std_test_f1'][grid.best_index_]
 		return grid
 
-	def __plot_results(self, grid):
-		scoring=["accuracy", "f1", "precision", "recall"]
+	def __plot_results(self, grid, param, method):
+		scoring = ["accuracy"]  # , "f1", "precision", "recall"]
 		results = grid.cv_results_
-		plt.title("GridSearchCV evaluating using multiple scorers simultaneously",
-		          fontsize=16)
+		plt.title(method + " with GridSearchCV", fontsize=16)
 
-		plt.xlabel("param_lr__C")
+		plt.xlabel("param")
 		plt.ylabel("Score")
 
 		ax = plt.gca()
-		#ax.set_xlim(0, 100)
-		#ax.set_ylim(0.73, 1)
-
 		# Get the regular numpy array from the MaskedArray
-		X_axis = np.array(results['param_lr__C'].data, dtype=float)
+		X_axis = np.array(results['param_' + param].data, dtype=float)
 
-		for scorer, color in zip(sorted(scoring), ['g', 'k']):
+		for scorer, color in zip(sorted(scoring), ['g']):  # 'k', 'b', 'r']):
 			for sample, style in (('train', '--'), ('test', '-')):
 				sample_score_mean = results['mean_%s_%s' % (sample, scorer)]
 				sample_score_std = results['std_%s_%s' % (sample, scorer)]
@@ -205,15 +254,13 @@ class RatingsClassification(object):
 		plt.show()
 
 
-
-
 if __name__ == "__main__":
 	data = pd.read_csv("RatingsAndFundamentals.csv").dropna()
 	data = data.drop(columns=['RTG_SP_LT_LC_ISSUER_CREDIT', 'Ticker', 'Name']).dropna()
 
 	# fit scaler on data
 	norm = MinMaxScaler().fit(data)
-	#norm = StandardScaler().fit(data)
+	# norm = StandardScaler().fit(data)
 
 	# transform training data
 	data_scaled = pd.DataFrame(norm.transform(data))
@@ -225,7 +272,7 @@ if __name__ == "__main__":
 	ratings_class = RatingsClassification(test_size=0.3)
 	ratings_class.run_classification(X_scaled, Y_scaled)
 
-	print(ratings_class.results.head(10))
+	print(ratings_class.results.head(1000))
 
 #
 # X_train, X_test, Y_train, Y_test = train_test_split(X_scaled, Y_scaled, test_size=0.3)
