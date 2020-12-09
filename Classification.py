@@ -1,10 +1,7 @@
 import numpy as np
 import pandas as pd
-from pandas import DataFrame
-from sklearn.ensemble import RandomForestClassifier, BaggingClassifier, ExtraTreesClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectKBest, chi2, SelectFromModel, f_classif
-from yellowbrick.classifier import ConfusionMatrix
-from yellowbrick.contrib.wrapper import ContribEstimator
 from yellowbrick.model_selection import ValidationCurve, CVScores, FeatureImportances
 
 from pca_helper import PCAHelper
@@ -14,8 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Preprocessing
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-import copy
+from sklearn.preprocessing import MinMaxScaler
 
 # Machine learning
 from sklearn.model_selection import train_test_split, cross_validate
@@ -35,7 +31,7 @@ from sklearn.decomposition import PCA
 from enum import Enum
 from functools import partial
 from yellowbrick.regressor import AlphaSelection
-from yellowbrick.features import PCA
+import yellowbrick
 
 
 class RatingsClassification(object):
@@ -72,12 +68,12 @@ class RatingsClassification(object):
 		self.best_estimator = dict()
 		self.display_plots = display_plots
 
-	def fit(self, X_train, Y_train, display_plots=True):
+	def fit(self, X_train, Y_train):
 		### Lasso ###
 		X_reduced = self.__reduce_with_lasso(X_train, Y_train)
 
 		if self.display_plots:
-			self.__plot_features(X_train,Y_train)
+			self.__plot_features(X_train, Y_train)
 
 		self.__run_lr(X_reduced, Y_train, RatingsClassification.FeatureSelectionMethod.Lasso)
 		self.__run_lda(X_train, Y_train, RatingsClassification.FeatureSelectionMethod.Lasso)
@@ -122,8 +118,8 @@ class RatingsClassification(object):
 		pipe = Pipeline(steps=[('lr', lr)])
 
 		if self.display_plots:
-			viz = ValidationCurve(lr, param_name='C', param_range=C, scoring="accuracy",cv=10)
-			viz.fit(X,Y)
+			viz = ValidationCurve(lr, param_name='C', param_range=C, scoring="accuracy", cv=10)
+			viz.fit(X, Y)
 			viz.show()
 
 		if sel_method == RatingsClassification.FeatureSelectionMethod.Lasso:
@@ -224,10 +220,9 @@ class RatingsClassification(object):
 		grid = GridSearchCV(pipe, cv=10, n_jobs=2, param_grid=param_grid,
 		                    scoring=[s.name for s in RatingsClassification.Scores],
 		                    refit=refit_method, return_train_score=False)
-
 		if self.display_plots and feat_sel_method == RatingsClassification.FeatureSelectionMethod.Lasso:
 			vis = CVScores(pipe, cv=10, scoring="accuracy")
-			vis.fit(X,Y)
+			vis.fit(X, Y)
 			vis.show()
 
 		grid.fit(X, Y)
@@ -261,14 +256,12 @@ class RatingsClassification(object):
 		vis.show()
 
 		viz = FeatureImportances(Lasso(alpha=self.lasso_model.estimator_.alpha_))
-		viz.fit(X,Y)
+		viz.fit(X, Y)
 		viz.show()
 
-		visualizer = PCA(scale=True, proj_features=True)
+		visualizer = yellowbrick.features.PCA(scale=True, proj_features=True)
 		visualizer.fit_transform(X, Y)
 		visualizer.show()
-
-
 
 
 if __name__ == "__main__":
@@ -289,23 +282,13 @@ if __name__ == "__main__":
 
 	ratings_class = RatingsClassification(display_plots=False)
 	ratings_class.fit(X_train, Y_train)
-	Y_predicted= ratings_class.predict(X_test)
+	Y_predicted = ratings_class.predict(X_test)
 	cm = confusion_matrix(Y_test, Y_predicted)
 	sns.heatmap(pd.DataFrame(cm), annot=True, annot_kws={"size": 16})
 	plt.show()
 
 	print(ratings_class.results)
 	print(accuracy_score(Y_test, Y_predicted))
-
-
-
-
-
-
-
-
-
-
 
 # cm = confusion_matrix(Y_test, predicted)
 # accuracy = accuracy_score(Y_test, predicted)
