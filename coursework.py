@@ -32,7 +32,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticD
 
 
 #read data
-data = pd.read_csv("RatingsAndFundamentals.csv").dropna()
+data = pd.read_csv("Part 1/RatingsAndFundamentals.csv").dropna()
 data.head()
 len(data)
 

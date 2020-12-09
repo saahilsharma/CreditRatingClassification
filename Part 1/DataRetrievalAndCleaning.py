@@ -1,11 +1,7 @@
 import numpy as np
 import pandas as pd
 pd.set_option('display.max_columns', None)
-import matplotlib.pyplot as plt
-import seaborn as sns
 import quandl
-
-plt.style.use('seaborn-whitegrid')
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import numpy as np
 
-class PCAHelper:
+class ScoreHelper:
 	@staticmethod
 	def lower_bound(cv_results):
 
@@ -10,7 +10,7 @@ class PCAHelper:
 
 	@staticmethod
 	def best_low_complexity(cv_results, param='dim_reduction__n_components'):
-		threshold = PCAHelper.lower_bound(cv_results)
+		threshold = ScoreHelper.lower_bound(cv_results)
 		candidate_idx = np.flatnonzero(cv_results['mean_test_accuracy'] >= threshold)
 		best_idx = candidate_idx[cv_results['param_'+param][candidate_idx].argmin()]
 		return best_idx
