@@ -1,11 +1,7 @@
 import numpy as np
 import pandas as pd
 pd.set_option('display.max_columns', None)
-import matplotlib.pyplot as plt
-import seaborn as sns
 import quandl
-
-plt.style.use('seaborn-whitegrid')
 
 
 if __name__ == "__main__":
@@ -16,7 +12,7 @@ if __name__ == "__main__":
     sp_1500.dropna(subset=['RTG_SP_LT_LC_ISSUER_CREDIT'], inplace=True)
     sp_1500_clean = sp_1500[~sp_1500['RTG_SP_LT_LC_ISSUER_CREDIT'].isin(['NR', 'SD'])]
     sp_1500_clean['OurRating'] = sp_1500_clean['RTG_SP_LT_LC_ISSUER_CREDIT'].apply(
-        lambda x: 'Not Junk' if (x in not_junk_rating) else 'Junk')
+        lambda x: 1 if (x in not_junk_rating) else 0)
 
     sp_1500_clean['Ticker'] = sp_1500_clean['Ticker'].apply(lambda t: t.split(" ")[0].replace("/", "-"))
 
